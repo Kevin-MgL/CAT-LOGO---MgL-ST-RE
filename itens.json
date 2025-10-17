@@ -1,0 +1,54 @@
+[
+    {
+        "categoria": "▸**DESTAQUES**",
+        "cor": "FFA500",
+        "itens": [
+            {"nome": "Laço da Celine (PE 3) (DES +2) [1]", "preco": "330kk"},
+            {"nome": "Escudo Sanguinário Maldito [1]", "preco": "320kk"},
+            {"nome": "Anel de Reforço Mágico (+3% Dano Mágico) (+2% Dano Mágico) [1]", "preco": "100kk"},
+            {"nome": "Pedra Flutuante Mágica", "preco": "95kk"},
+            {"nome": "Asas de Sigrún [1]", "preco": "45kk"},
+            {"nome": "Boneca Insurgente (+10% Dano Crítico) (Precisão +16) [1]", "preco": "40kk"}
+        ]
+    },
+    {
+        "categoria": "▸**EQUIPAMENTOS**",
+        "cor": "ADD8E6",
+        "itens": [
+            {"nome": "+9 Cajado Duplo de Cinzas (+20% Dano Mágico contra Neutro) (+6% Dano Mágico contra Amorfo) [1]", "preco": "50kk"},
+            {"nome": "+9 Escudo de Cinzas [Essência de INT 2]", "preco": "40kk"},
+            {"nome": "+9 Bastão do Sobrevivente II", "preco": "30kk"},
+            {"nome": "+7 Bastão do Sobrevivente II", "preco": "20kk"}
+        ]
+    },
+    {
+        "categoria": "▸**OUTROS**",
+        "cor": "00008B",
+        "itens": [
+            {"nome": "+9 Manto de Cerco [1]", "preco": "40kk"},
+            {"nome": "+7 Sapatos de Cerco [1]", "preco": "30kk"}
+        ]
+    },
+    {
+        "categoria": "▸**SOMBRIOS**",
+        "cor": "A9A9A9",
+        "itens": [
+            {"nome": "+10 Manopla Sombria Mágica", "preco": "50kk"},
+            {"nome": "+8 Escudo Sombrio Medicinal", "preco": "30kk"},
+            {"nome": "+8 Greva Sombria Medicinal", "preco": "30kk"},
+            {"nome": "+10 Malha Sombria Cabal", "preco": "30kk"},
+            {"nome": "+9 Escudo Sombrio Cabal", "preco": "20kk"},
+            {"nome": "+8 Greva Sombria Cabal", "preco": "20kk"},
+            {"nome": "+9 Malha Sombria Grande", "preco": "20kk"}
+        ]
+    },
+    {
+        "categoria": "▸**VISUAIS**",
+        "cor": "800080",
+        "itens": [
+            {"nome": "Asas de Pavão Roxo", "preco": "100kk"},
+            {"nome": "Peruca Longa de Neon", "preco": "90kk"},
+            {"nome": "Coroa de Dewata", "preco": "30kk"}
+        ]
+    }
+]
