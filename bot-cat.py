@@ -48,12 +48,13 @@ async def postar_catalogo():
     for categoria, itens in CATEGORIAS.items():
         descricao = "\n".join(f"• {item}" for item in itens)
         embed.add_field(name=f"▸{categoria}", value=descricao or "Sem itens", inline=False)
-        embed.color = CORES[categoria]  # Mantém a cor da última categoria como cor principal
+        embed.color = CORES[categoria]
 
     await canal.send(embed=embed)
     print("[INFO] Catálogo enviado com sucesso.")
 
-@tasks.loop(days=1)  # Executa a cada 1 dia
+# Loop diário usando segundos
+@tasks.loop(seconds=86400)
 async def loop_catalogo():
     await postar_catalogo()
 
@@ -63,3 +64,4 @@ async def on_ready():
     loop_catalogo.start()
 
 bot.run(TOKEN)
+
