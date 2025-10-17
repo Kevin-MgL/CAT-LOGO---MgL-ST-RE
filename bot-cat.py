@@ -1,131 +1,109 @@
 import discord
 from discord.ext import commands, tasks
-import asyncio
+from datetime import datetime
 import os
-import json
-import traceback
 
 # -----------------------------
-# CONFIGURAÇÃO DE VARIÁVEIS
+# CONFIGURAÇÕES BÁSICAS
 # -----------------------------
-TOKEN = os.environ.get("TOKEN")
-GUILD_ID = int(os.environ.get("GUILD_ID", 0))
-CHANNEL_ID = int(os.environ.get("CHANNEL_ID", 0))
-ITEMS_FILE = "itens.json"
+TOKEN = os.getenv("DISCORD_TOKEN")
+GUILD_ID = int(os.getenv("GUILD_ID", 0))
+CATALOG_CHANNEL_ID = int(os.getenv("CHANNEL_ID", 0))
 
-# -----------------------------
-# FUNÇÕES AUXILIARES
-# -----------------------------
-def carregar_itens():
-    try:
-        with open(ITEMS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        print(f"Arquivo {ITEMS_FILE} não encontrado.")
-        return []
-    except json.JSONDecodeError as e:
-        print(f"Erro ao ler {ITEMS_FILE}: JSON inválido.")
-        print(e)
-        return []
-    except Exception as e:
-        print(f"Erro inesperado ao carregar {ITEMS_FILE}:")
-        print(e)
-        return []
-
-# -----------------------------
-# CONFIGURAÇÃO DO BOT
-# -----------------------------
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # -----------------------------
-# CORES DAS EMBEDS
+# CORES DAS CATEGORIAS
 # -----------------------------
 CORES = {
-    "▸**DESTAQUES**": 0xFF8C42,    # Laranja
-    "▸**EQUIPAMENTOS**": 0xADD8E6, # Azul Claro
-    "▸**OUTROS**": 0x0A3D62,       # Azul Escuro
-    "▸**SOMBRIOS**": 0xA9A9A9,     # Cinza
-    "▸**VISUAIS**": 0x800080       # Roxo
+    "▸ DESTAQUES": 0xFF8C42,     # Laranja
+    "▸ EQUIPAMENTOS": 0x2ECCFF,  # Azul claro
+    "▸ OUTROS": 0x0A3D62,        # Azul escuro
+    "▸ SOMBRIOS": 0xA9A9A9,      # Cinza
+    "▸ VISUAIS": 0x800080        # Roxo
 }
 
 # -----------------------------
-# EVENTO ON_READY
+# CRIA EMBEDS DO CATÁLOGO
+# -----------------------------
+def criar_embeds(automatico=False):
+    rodape = "📅 Postagem automática (a cada 25 dias)" if automatico else "🪶 Postagem manual"
+    embeds = []
+
+    embeds.append(discord.Embed(
+        title="▸ DESTAQUES",
+        description="⚔️ Itens mais recentes e populares disponíveis no catálogo.",
+        color=CORES["▸ DESTAQUES"]
+    ).set_footer(text=rodape))
+
+    embeds.append(discord.Embed(
+        title="▸ EQUIPAMENTOS",
+        description="🛡️ Armas, armaduras e acessórios lendários para os guerreiros de elite.",
+        color=CORES["▸ EQUIPAMENTOS"]
+    ).set_footer(text=rodape))
+
+    embeds.append(discord.Embed(
+        title="▸ OUTROS",
+        description="📦 Itens diversos, utilidades raras e colecionáveis únicos.",
+        color=CORES["▸ OUTROS"]
+    ).set_footer(text=rodape))
+
+    embeds.append(discord.Embed(
+        title="▸ SOMBRIOS",
+        description="🌑 Artefatos amaldiçoados e equipamentos das trevas. Somente para os destemidos.",
+        color=CORES["▸ SOMBRIOS"]
+    ).set_footer(text=rodape))
+
+    embeds.append(discord.Embed(
+        title="▸ VISUAIS",
+        description="🎭 Aparências e visuais exclusivos para personalizar o seu estilo.",
+        color=CORES["▸ VISUAIS"]
+    ).set_footer(text=rodape))
+
+    return embeds
+
+
+# -----------------------------
+# COMANDO MANUAL
+# -----------------------------
+@bot.tree.command(name="catalogo", description="Mostra o catálogo de itens disponíveis.")
+async def catalogo(interaction: discord.Interaction):
+    embeds = criar_embeds(automatico=False)
+    await interaction.response.send_message(embeds=embeds)
+
+
+# -----------------------------
+# LOOP AUTOMÁTICO (a cada 25 dias)
+# -----------------------------
+@tasks.loop(hours=600)  # 25 dias = 600 horas
+async def postar_catalogo():
+    canal = bot.get_channel(CATALOG_CHANNEL_ID)
+    if canal:
+        embeds = criar_embeds(automatico=True)
+        await canal.send(embeds=embeds)
+        print(f"[{datetime.now()}] Catálogo postado automaticamente.")
+
+
+# -----------------------------
+# EVENTO DE INICIALIZAÇÃO
 # -----------------------------
 @bot.event
 async def on_ready():
-    print(f"Bot online como {bot.user}")
+    print(f"✅ Bot online como {bot.user}")
     try:
-        await bot.tree.sync()
-        print("Comandos slash sincronizados no servidor.")
-        postar_catalogo.start()
+        await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+        print(f"Comandos slash sincronizados no servidor {GUILD_ID}.")
     except Exception as e:
-        print(e)
+        print(f"Erro ao sincronizar comandos: {e}")
+
+    postar_catalogo.start()
+
 
 # -----------------------------
-# COMANDO /catalogo
+# EXECUÇÃO DO BOT
 # -----------------------------
-@bot.tree.command(name="catalogo", description="Mostra o catálogo de itens disponíveis")
-async def catalogo(interaction: discord.Interaction):
-    try:
-        itens = carregar_itens()
-        if not itens:
-            await interaction.response.send_message("O catálogo está vazio.", ephemeral=True)
-            return
-
-        embed = discord.Embed(title="🛒 Catálogo de Itens", color=discord.Color.dark_gray())
-        embed.description = "*Postagem Manual*"
-
-        for categoria in itens:
-            nome_categoria = categoria.get("categoria", "")
-            embed.add_field(
-                name=nome_categoria,
-                value="\n".join([f"{item['nome']} - {item['preco']}" for item in categoria.get("itens", [])]),
-                inline=False
-            )
-            embed.add_field(name="\u200b", value="\u200b", inline=False)
-
-        await interaction.response.send_message(embed=embed)
-
-    except Exception as e:
-        print("Erro no comando /catalogo:")
-        traceback.print_exc()
-        await interaction.response.send_message("Ocorreu um erro ao carregar o catálogo.", ephemeral=True)
-
-# -----------------------------
-# POSTAGEM AUTOMÁTICA
-# -----------------------------
-@tasks.loop(days=25)
-async def postar_catalogo():
-    try:
-        canal = bot.get_channel(CHANNEL_ID)
-        if canal is None:
-            canal = await bot.fetch_channel(CHANNEL_ID)
-
-        itens = carregar_itens()
-        if not itens:
-            await canal.send("O catálogo está vazio.")
-            return
-
-        embed = discord.Embed(title="🛒 Catálogo de Itens", color=discord.Color.dark_gray())
-        embed.description = "*Postagem Automática*"
-
-        for categoria in itens:
-            nome_categoria = categoria.get("categoria", "")
-            embed.add_field(
-                name=nome_categoria,
-                value="\n".join([f"{item['nome']} - {item['preco']}" for item in categoria.get("itens", [])]),
-                inline=False
-            )
-            embed.add_field(name="\u200b", value="\u200b", inline=False)
-
-        await canal.send(embed=embed)
-
-    except Exception as e:
-        print("Erro ao postar catálogo automaticamente:")
-        traceback.print_exc()
-
-# -----------------------------
-# RODA O BOT
-# -----------------------------
-bot.run(TOKEN)
+if TOKEN:
+    bot.run(TOKEN)
+else:
+    print("❌ ERRO: Variável DISCORD_TOKEN não encontrada.")
