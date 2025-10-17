@@ -1,119 +1,139 @@
 import discord
-from discord.ext import tasks, commands
+from discord.ext import commands, tasks
 import asyncio
+import os
+import json
+import traceback
 
-# === CONFIGURAÇÕES ===
-TOKEN = "SEU_TOKEN_AQUI"
-CANAL_ID = 123456789012345678  # <-- coloque aqui o ID do canal que receberá o catálogo
+# -----------------------------
+# CONFIGURAÇÃO DE VARIÁVEIS
+# -----------------------------
+TOKEN = os.environ.get("TOKEN")
+GUILD_ID = int(os.environ.get("GUILD_ID", 0))
+CHANNEL_ID = int(os.environ.get("CHANNEL_ID", 0))
+ITEMS_FILE = "itens.json"
 
-# === INTENTS ===
+# -----------------------------
+# FUNÇÕES AUXILIARES
+# -----------------------------
+def carregar_itens():
+    try:
+        with open(ITEMS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"Arquivo {ITEMS_FILE} não encontrado.")
+        return []
+    except json.JSONDecodeError as e:
+        print(f"Erro ao ler {ITEMS_FILE}: JSON inválido.")
+        print(e)
+        return []
+    except Exception as e:
+        print(f"Erro inesperado ao carregar {ITEMS_FILE}:")
+        print(e)
+        return []
+
+# -----------------------------
+# CONFIGURAÇÃO DO BOT
+# -----------------------------
 intents = discord.Intents.default()
-intents.message_content = True
-intents.guilds = True
-intents.members = True
-
+intents.message_content = True  # necessário para ler conteúdo de mensagens
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# === EMBEDS DO CATÁLOGO ===
+# -----------------------------
+# CORES DAS EMBEDS
+# -----------------------------
+CORES = {
+    "▸DESTAQUES": 0xFF8C42,    # Laranja
+    "▸EQUIPAMENTOS": 0xADD8E6, # Azul Claro
+    "▸OUTROS": 0x0A3D62,       # Azul Escuro
+    "▸SOMBRIOS": 0xA9A9A9,     # Cinza
+    "▸VISUAIS": 0x800080       # Roxo
+}
 
-def criar_catalogo_embeds():
-    # ▸ DESTAQUES (Laranja)
-    destaques = discord.Embed(
-        title="▸ DESTAQUES",
-        description=(
-            "**• Pacote de Moedas (Promoção)** 💰\n"
-            "**• Passe de Temporada** ⭐\n"
-            "**• Caixa Premium** 🎁"
-        ),
-        color=discord.Color.orange()
-    )
-    destaques.set_footer(text="Postagem automática do catálogo oficial • Desenvolvido por MgL")
-
-    # ▸ EQUIPAMENTOS (Azul claro)
-    equipamentos = discord.Embed(
-        title="▸ EQUIPAMENTOS",
-        description=(
-            "**• Espada Flamejante** 🔥\n"
-            "**• Escudo Congelante** ❄️\n"
-            "**• Arco Celestial** 🌠"
-        ),
-        color=discord.Color.blue()
-    )
-    equipamentos.set_footer(text="Postagem automática do catálogo oficial • Desenvolvido por MgL")
-
-    # ▸ OUTROS (Azul escuro)
-    outros = discord.Embed(
-        title="▸ OUTROS",
-        description=(
-            "**• Poções** 🧪\n"
-            "**• Itens de evento** 🎊\n"
-            "**• Emotes raros** 😎"
-        ),
-        color=discord.Color.dark_blue()
-    )
-    outros.set_footer(text="Postagem automática do catálogo oficial • Desenvolvido por MgL")
-
-    # ▸ SOMBRIOS (Cinza)
-    sombrios = discord.Embed(
-        title="▸ SOMBRIOS",
-        description=(
-            "**• Lâmina Abissal** ⚔️\n"
-            "**• Armadura Espectral** 🕸️\n"
-            "**• Elmo do Vazio** 🌑"
-        ),
-        color=discord.Color.dark_gray()
-    )
-    sombrios.set_footer(text="Postagem automática do catálogo oficial • Desenvolvido por MgL")
-
-    # ▸ VISUAIS (Roxo)
-    visuais = discord.Embed(
-        title="▸ VISUAIS",
-        description=(
-            "**• Visual Arcano** 💜\n"
-            "**• Visual Samurai** 🥋\n"
-            "**• Visual Neon** 💡"
-        ),
-        color=discord.Color.purple()
-    )
-    visuais.set_footer(text="Postagem automática do catálogo oficial • Desenvolvido por MgL")
-
-    return [destaques, equipamentos, outros, sombrios, visuais]
-
-
-# === FUNÇÃO PARA ENVIAR O CATÁLOGO ===
-@tasks.loop(hours=600)  # 25 dias = 600 horas
-async def enviar_catalogo():
-    await bot.wait_until_ready()
-    canal = bot.get_channel(CANAL_ID)
-    if canal is None:
-        print("❌ Canal não encontrado. Verifique o ID.")
-        return
-
-    embeds = criar_catalogo_embeds()
-    for embed in embeds:
-        await canal.send(embed=embed)
-        await asyncio.sleep(1)  # intervalo curto entre mensagens
-
-    print("✅ Catálogo enviado automaticamente.")
-
-
-# === COMANDO MANUAL PARA TESTE ===
-@bot.command()
-async def catalogo(ctx):
-    embeds = criar_catalogo_embeds()
-    for embed in embeds:
-        await ctx.send(embed=embed)
-        await asyncio.sleep(1)
-    await ctx.send("✅ *Postagem automática do catálogo oficial • Desenvolvido por MgL*")
-
-
-# === EVENTOS ===
+# -----------------------------
+# EVENTO ON_READY
+# -----------------------------
 @bot.event
 async def on_ready():
-    print(f"🤖 Bot conectado como {bot.user}")
-    if not enviar_catalogo.is_running():
-        enviar_catalogo.start()
+    print(f"Bot online como {bot.user}")
+    try:
+        await bot.tree.sync()
+        print("Comandos slash sincronizados no servidor.")
+        postar_catalogo.start()
+    except Exception as e:
+        print(e)
 
+# -----------------------------
+# FUNÇÃO PARA CRIAR EMBEDS
+# -----------------------------
+def criar_embeds(itens, automatico=True):
+    embeds = []
+    tipo_postagem = "*Postagem Automática*" if automatico else "*Postagem Manual*"
+    for categoria in itens:
+        nome_categoria = categoria.get("categoria", "")
+        cor = CORES.get(nome_categoria, 0xFFFFFF)
+        embed = discord.Embed(
+            title=f"🛒 Catálogo de Itens - {nome_categoria}",
+            color=cor,
+            description=tipo_postagem
+        )
+        itens_categoria = categoria.get("itens", [])
+        if itens_categoria:
+            embed.add_field(
+                name="Itens",
+                value="\n".join([f"{item['nome']} - {item['preco']}" for item in itens_categoria]),
+                inline=False
+            )
+        embeds.append(embed)
+    return embeds
 
-# === EXECUÇÃO ===
+# -----------------------------
+# COMANDO /catalogo
+# -----------------------------
+@bot.tree.command(name="catalogo", description="Mostra o catálogo de itens disponíveis")
+async def catalogo(interaction: discord.Interaction):
+    try:
+        itens = carregar_itens()
+        if not itens:
+            await interaction.response.send_message("O catálogo está vazio.", ephemeral=True)
+            return
+
+        embeds = criar_embeds(itens, automatico=False)
+        for embed in embeds:
+            await interaction.response.send_message(embed=embed)
+
+    except Exception as e:
+        print("Erro no comando /catalogo:")
+        traceback.print_exc()
+        await interaction.response.send_message("Ocorreu um erro ao carregar o catálogo.", ephemeral=True)
+
+# -----------------------------
+# POSTAGEM AUTOMÁTICA
+# -----------------------------
+@tasks.loop(seconds=60*60*24*25)  # 25 dias em segundos
+async def postar_catalogo():
+    try:
+        guild = bot.get_guild(GUILD_ID)
+        if not guild:
+            guild = await bot.fetch_guild(GUILD_ID)
+        canal = guild.get_channel(CHANNEL_ID)
+        if not canal:
+            canal = await guild.fetch_channel(CHANNEL_ID)
+
+        itens = carregar_itens()
+        if not itens:
+            await canal.send("O catálogo está vazio.")
+            return
+
+        embeds = criar_embeds(itens, automatico=True)
+        for embed in embeds:
+            await canal.send(embed=embed)
+
+    except Exception as e:
+        print("Erro ao postar catálogo automaticamente:")
+        traceback.print_exc()
+
+# -----------------------------
+# RODA O BOT
+# -----------------------------
 bot.run(TOKEN)
