@@ -1,109 +1,119 @@
 import discord
-from discord.ext import commands, tasks
-from datetime import datetime
-import os
+from discord.ext import tasks, commands
+import asyncio
 
-# -----------------------------
-# CONFIGURAÇÕES BÁSICAS
-# -----------------------------
-TOKEN = os.getenv("DISCORD_TOKEN")
-GUILD_ID = int(os.getenv("GUILD_ID", 0))
-CATALOG_CHANNEL_ID = int(os.getenv("CHANNEL_ID", 0))
+# === CONFIGURAÇÕES ===
+TOKEN = "SEU_TOKEN_AQUI"
+CANAL_ID = 123456789012345678  # <-- coloque aqui o ID do canal que receberá o catálogo
 
+# === INTENTS ===
 intents = discord.Intents.default()
+intents.message_content = True
+intents.guilds = True
+intents.members = True
+
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# -----------------------------
-# CORES DAS CATEGORIAS
-# -----------------------------
-CORES = {
-    "▸ DESTAQUES": 0xFF8C42,     # Laranja
-    "▸ EQUIPAMENTOS": 0x2ECCFF,  # Azul claro
-    "▸ OUTROS": 0x0A3D62,        # Azul escuro
-    "▸ SOMBRIOS": 0xA9A9A9,      # Cinza
-    "▸ VISUAIS": 0x800080        # Roxo
-}
+# === EMBEDS DO CATÁLOGO ===
 
-# -----------------------------
-# CRIA EMBEDS DO CATÁLOGO
-# -----------------------------
-def criar_embeds(automatico=False):
-    rodape = "📅 Postagem automática (a cada 25 dias)" if automatico else "🪶 Postagem manual"
-    embeds = []
-
-    embeds.append(discord.Embed(
+def criar_catalogo_embeds():
+    # ▸ DESTAQUES (Laranja)
+    destaques = discord.Embed(
         title="▸ DESTAQUES",
-        description="⚔️ Itens mais recentes e populares disponíveis no catálogo.",
-        color=CORES["▸ DESTAQUES"]
-    ).set_footer(text=rodape))
+        description=(
+            "**• Pacote de Moedas (Promoção)** 💰\n"
+            "**• Passe de Temporada** ⭐\n"
+            "**• Caixa Premium** 🎁"
+        ),
+        color=discord.Color.orange()
+    )
+    destaques.set_footer(text="Postagem automática do catálogo oficial • Desenvolvido por MgL")
 
-    embeds.append(discord.Embed(
+    # ▸ EQUIPAMENTOS (Azul claro)
+    equipamentos = discord.Embed(
         title="▸ EQUIPAMENTOS",
-        description="🛡️ Armas, armaduras e acessórios lendários para os guerreiros de elite.",
-        color=CORES["▸ EQUIPAMENTOS"]
-    ).set_footer(text=rodape))
+        description=(
+            "**• Espada Flamejante** 🔥\n"
+            "**• Escudo Congelante** ❄️\n"
+            "**• Arco Celestial** 🌠"
+        ),
+        color=discord.Color.blue()
+    )
+    equipamentos.set_footer(text="Postagem automática do catálogo oficial • Desenvolvido por MgL")
 
-    embeds.append(discord.Embed(
+    # ▸ OUTROS (Azul escuro)
+    outros = discord.Embed(
         title="▸ OUTROS",
-        description="📦 Itens diversos, utilidades raras e colecionáveis únicos.",
-        color=CORES["▸ OUTROS"]
-    ).set_footer(text=rodape))
+        description=(
+            "**• Poções** 🧪\n"
+            "**• Itens de evento** 🎊\n"
+            "**• Emotes raros** 😎"
+        ),
+        color=discord.Color.dark_blue()
+    )
+    outros.set_footer(text="Postagem automática do catálogo oficial • Desenvolvido por MgL")
 
-    embeds.append(discord.Embed(
+    # ▸ SOMBRIOS (Cinza)
+    sombrios = discord.Embed(
         title="▸ SOMBRIOS",
-        description="🌑 Artefatos amaldiçoados e equipamentos das trevas. Somente para os destemidos.",
-        color=CORES["▸ SOMBRIOS"]
-    ).set_footer(text=rodape))
+        description=(
+            "**• Lâmina Abissal** ⚔️\n"
+            "**• Armadura Espectral** 🕸️\n"
+            "**• Elmo do Vazio** 🌑"
+        ),
+        color=discord.Color.dark_gray()
+    )
+    sombrios.set_footer(text="Postagem automática do catálogo oficial • Desenvolvido por MgL")
 
-    embeds.append(discord.Embed(
+    # ▸ VISUAIS (Roxo)
+    visuais = discord.Embed(
         title="▸ VISUAIS",
-        description="🎭 Aparências e visuais exclusivos para personalizar o seu estilo.",
-        color=CORES["▸ VISUAIS"]
-    ).set_footer(text=rodape))
+        description=(
+            "**• Visual Arcano** 💜\n"
+            "**• Visual Samurai** 🥋\n"
+            "**• Visual Neon** 💡"
+        ),
+        color=discord.Color.purple()
+    )
+    visuais.set_footer(text="Postagem automática do catálogo oficial • Desenvolvido por MgL")
 
-    return embeds
-
-
-# -----------------------------
-# COMANDO MANUAL
-# -----------------------------
-@bot.tree.command(name="catalogo", description="Mostra o catálogo de itens disponíveis.")
-async def catalogo(interaction: discord.Interaction):
-    embeds = criar_embeds(automatico=False)
-    await interaction.response.send_message(embeds=embeds)
+    return [destaques, equipamentos, outros, sombrios, visuais]
 
 
-# -----------------------------
-# LOOP AUTOMÁTICO (a cada 25 dias)
-# -----------------------------
+# === FUNÇÃO PARA ENVIAR O CATÁLOGO ===
 @tasks.loop(hours=600)  # 25 dias = 600 horas
-async def postar_catalogo():
-    canal = bot.get_channel(CATALOG_CHANNEL_ID)
-    if canal:
-        embeds = criar_embeds(automatico=True)
-        await canal.send(embeds=embeds)
-        print(f"[{datetime.now()}] Catálogo postado automaticamente.")
+async def enviar_catalogo():
+    await bot.wait_until_ready()
+    canal = bot.get_channel(CANAL_ID)
+    if canal is None:
+        print("❌ Canal não encontrado. Verifique o ID.")
+        return
+
+    embeds = criar_catalogo_embeds()
+    for embed in embeds:
+        await canal.send(embed=embed)
+        await asyncio.sleep(1)  # intervalo curto entre mensagens
+
+    print("✅ Catálogo enviado automaticamente.")
 
 
-# -----------------------------
-# EVENTO DE INICIALIZAÇÃO
-# -----------------------------
+# === COMANDO MANUAL PARA TESTE ===
+@bot.command()
+async def catalogo(ctx):
+    embeds = criar_catalogo_embeds()
+    for embed in embeds:
+        await ctx.send(embed=embed)
+        await asyncio.sleep(1)
+    await ctx.send("✅ *Postagem automática do catálogo oficial • Desenvolvido por MgL*")
+
+
+# === EVENTOS ===
 @bot.event
 async def on_ready():
-    print(f"✅ Bot online como {bot.user}")
-    try:
-        await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-        print(f"Comandos slash sincronizados no servidor {GUILD_ID}.")
-    except Exception as e:
-        print(f"Erro ao sincronizar comandos: {e}")
-
-    postar_catalogo.start()
+    print(f"🤖 Bot conectado como {bot.user}")
+    if not enviar_catalogo.is_running():
+        enviar_catalogo.start()
 
 
-# -----------------------------
-# EXECUÇÃO DO BOT
-# -----------------------------
-if TOKEN:
-    bot.run(TOKEN)
-else:
-    print("❌ ERRO: Variável DISCORD_TOKEN não encontrada.")
+# === EXECUÇÃO ===
+bot.run(TOKEN)
