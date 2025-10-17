@@ -1,119 +1,61 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import tasks
 import asyncio
-import os
-import json
 import traceback
+import os
 
-# -----------------------------
-# CONFIGURAÇÃO DE VARIÁVEIS
-# -----------------------------
-TOKEN = os.environ.get("TOKEN")
-GUILD_ID = int(os.environ.get("GUILD_ID", 0))
-CHANNEL_ID = int(os.environ.get("CHANNEL_ID", 0))
-ITEMS_FILE = "itens.json"
+# Variáveis essenciais
+TOKEN = os.environ.get("TOKEN")       # Token do bot
+GUILD_ID = 123456789012345678        # ID do servidor
+CHANNEL_ID = 987654321098765432      # ID do canal onde o catálogo será postado
 
-# -----------------------------
-# FUNÇÕES AUXILIARES
-# -----------------------------
-def carregar_itens():
-    try:
-        with open(ITEMS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        print(f"Arquivo {ITEMS_FILE} não encontrado.")
-        return []
-    except json.JSONDecodeError as e:
-        print(f"Erro ao ler {ITEMS_FILE}: JSON inválido.")
-        print(e)
-        return []
-    except Exception as e:
-        print(f"Erro inesperado ao carregar {ITEMS_FILE}:")
-        print(e)
-        return []
-
-# -----------------------------
-# CONFIGURAÇÃO DO BOT
-# -----------------------------
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-# -----------------------------
-# CORES DAS EMBEDS
-# -----------------------------
+# Cores das categorias
 CORES = {
-    "▸**DESTAQUES**": 0xFF8C42,    # Laranja
-    "▸**EQUIPAMENTOS**": 0xADD8E6, # Azul Claro
-    "▸**OUTROS**": 0x0A3D62,       # Azul Escuro
-    "▸**SOMBRIOS**": 0xA9A9A9,     # Cinza
-    "▸**VISUAIS**": 0x800080       # Roxo
+    "▸DESTAQUES": discord.Color.orange(),
+    "▸EQUIPAMENTOS": discord.Color.blue(),  # azul padrão, mais escuro que antes
+    "▸OUTROS": discord.Color.dark_blue(),
+    "▸SOMBRIOS": discord.Color.dark_grey(),
+    "▸VISUAIS": discord.Color.purple(),
 }
 
-# -----------------------------
-# EVENTO ON_READY
-# -----------------------------
-@bot.event
-async def on_ready():
-    print(f"Bot online como {bot.user}")
-    try:
-        await bot.tree.sync()
-        print("Comandos slash sincronizados no servidor.")
-        postar_catalogo.start()
-    except Exception as e:
-        print(e)
+# Estrutura de itens do catálogo
+CATALOGO = [
+    {
+        "categoria": "▸DESTAQUES",
+        "itens": [{"nome": "Item A", "preco": "100"}, {"nome": "Item B", "preco": "150"}]
+    },
+    {
+        "categoria": "▸EQUIPAMENTOS",
+        "itens": [{"nome": "Espada", "preco": "250"}, {"nome": "Escudo", "preco": "200"}]
+    },
+    {
+        "categoria": "▸OUTROS",
+        "itens": [{"nome": "Poção", "preco": "50"}, {"nome": "Chave", "preco": "75"}]
+    },
+    {
+        "categoria": "▸SOMBRIOS",
+        "itens": [{"nome": "Capa Sombria", "preco": "300"}]
+    },
+    {
+        "categoria": "▸VISUAIS",
+        "itens": [{"nome": "Chapéu Roxo", "preco": "120"}]
+    }
+]
 
-# -----------------------------
-# COMANDO /catalogo
-# -----------------------------
-@bot.tree.command(name="catalogo", description="Mostra o catálogo de itens disponíveis")
-async def catalogo(interaction: discord.Interaction):
-    try:
-        itens = carregar_itens()
-        if not itens:
-            await interaction.response.send_message("O catálogo está vazio.", ephemeral=True)
-            return
+# Criação do bot
+intents = discord.Intents.default()
+intents.message_content = True
+bot = discord.Client(intents=intents)
 
-        embed_msg = []
-        for categoria in itens:
-            nome_categoria = categoria.get("categoria", "")
-            embed = discord.Embed(
-                title=f"🛒 {nome_categoria}",
-                description="*Postagem Manual*",
-                color=CORES.get(nome_categoria, discord.Color.dark_gray())
-            )
-            embed.add_field(
-                name="\u200b",
-                value="\n".join([f"{item['nome']} - {item['preco']}" for item in categoria.get("itens", [])]),
-                inline=False
-            )
-            embed_msg.append(embed)
-
-        for e in embed_msg:
-            await interaction.response.send_message(embed=e)
-
-    except Exception as e:
-        print("Erro no comando /catalogo:")
-        traceback.print_exc()
-        await interaction.response.send_message("Ocorreu um erro ao carregar o catálogo.", ephemeral=True)
-
-# -----------------------------
-# POSTAGEM AUTOMÁTICA
-# -----------------------------
-@tasks.loop(hours=24)  # Loop diário
+# Função que cria os embeds e envia em uma única mensagem
 async def postar_catalogo():
     try:
         canal = bot.get_channel(CHANNEL_ID)
         if canal is None:
             canal = await bot.fetch_channel(CHANNEL_ID)
 
-        itens = carregar_itens()
-        if not itens:
-            await canal.send("O catálogo está vazio.")
-            return
-
         embed_msg = []
-        for categoria in itens:
+        for categoria in CATALOGO:
             nome_categoria = categoria.get("categoria", "")
             embed = discord.Embed(
                 title=f"🛒 {nome_categoria}",
@@ -127,14 +69,27 @@ async def postar_catalogo():
             )
             embed_msg.append(embed)
 
-        for e in embed_msg:
-            await canal.send(embed=e)
+        # envia todos os embeds em uma única mensagem (até 10 por limite do Discord)
+        await canal.send(embeds=embed_msg[:10])
+
+        print("Catálogo postado com sucesso!")
 
     except Exception as e:
         print("Erro ao postar catálogo automaticamente:")
         traceback.print_exc()
 
-# -----------------------------
-# RODA O BOT
-# -----------------------------
+# Loop diário para postar catálogo
+@tasks.loop(hours=24)
+async def loop_diario():
+    await bot.wait_until_ready()
+    await postar_catalogo()
+
+# Inicia o loop quando o bot está pronto
+@bot.event
+async def on_ready():
+    print(f"Bot logado como {bot.user}")
+    if not loop_diario.is_running():
+        loop_diario.start()
+
+# Roda o bot
 bot.run(TOKEN)
