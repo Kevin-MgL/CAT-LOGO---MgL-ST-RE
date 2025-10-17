@@ -1,95 +1,65 @@
 import discord
 from discord.ext import tasks
+from discord import Embed
 import asyncio
-import traceback
 import os
 
-# Variáveis essenciais
-TOKEN = os.environ.get("TOKEN")       # Token do bot
-GUILD_ID = 123456789012345678        # ID do servidor
-CHANNEL_ID = 987654321098765432      # ID do canal onde o catálogo será postado
+# ================= CONFIGURAÇÃO =================
+TOKEN = os.environ.get("TOKEN")
+CHANNEL_ID = int(os.environ.get("CHANNEL_ID"))
+GUILD_ID = int(os.environ.get("GUILD_ID"))
+# =================================================
 
-# Cores das categorias
-CORES = {
-    "▸DESTAQUES": discord.Color.orange(),
-    "▸EQUIPAMENTOS": discord.Color.blue(),  # azul padrão, mais escuro que antes
-    "▸OUTROS": discord.Color.dark_blue(),
-    "▸SOMBRIOS": discord.Color.dark_grey(),
-    "▸VISUAIS": discord.Color.purple(),
-}
-
-# Estrutura de itens do catálogo
-CATALOGO = [
-    {
-        "categoria": "▸DESTAQUES",
-        "itens": [{"nome": "Item A", "preco": "100"}, {"nome": "Item B", "preco": "150"}]
-    },
-    {
-        "categoria": "▸EQUIPAMENTOS",
-        "itens": [{"nome": "Espada", "preco": "250"}, {"nome": "Escudo", "preco": "200"}]
-    },
-    {
-        "categoria": "▸OUTROS",
-        "itens": [{"nome": "Poção", "preco": "50"}, {"nome": "Chave", "preco": "75"}]
-    },
-    {
-        "categoria": "▸SOMBRIOS",
-        "itens": [{"nome": "Capa Sombria", "preco": "300"}]
-    },
-    {
-        "categoria": "▸VISUAIS",
-        "itens": [{"nome": "Chapéu Roxo", "preco": "120"}]
-    }
-]
-
-# Criação do bot
 intents = discord.Intents.default()
 intents.message_content = True
+intents.guilds = True
+
 bot = discord.Client(intents=intents)
 
-# Função que cria os embeds e envia em uma única mensagem
+# Cores dos embeds
+CORES = {
+    "DESTAQUES": 0xFFA500,      # Laranja
+    "EQUIPAMENTOS": 0x0077FF,   # Azul normal
+    "OUTROS": 0x0055AA,         # Azul mais escuro
+    "SOMBRIOS": 0x808080,       # Cinza
+    "VISUAIS": 0x800080         # Roxo
+}
+
+# Conteúdo dos embeds (exemplo, substitua pelo seu)
+CATEGORIAS = {
+    "DESTAQUES": ["Item destaque 1", "Item destaque 2"],
+    "EQUIPAMENTOS": ["Equipamento 1", "Equipamento 2"],
+    "OUTROS": ["Outro 1", "Outro 2"],
+    "SOMBRIOS": ["Sombrio 1", "Sombrio 2"],
+    "VISUAIS": ["Visual 1", "Visual 2"]
+}
+
 async def postar_catalogo():
     try:
-        canal = bot.get_channel(CHANNEL_ID)
-        if canal is None:
-            canal = await bot.fetch_channel(CHANNEL_ID)
+        canal = await bot.fetch_channel(CHANNEL_ID)
+    except discord.errors.NotFound:
+        print(f"[ERRO] Canal com ID {CHANNEL_ID} não encontrado ou bot não tem acesso.")
+        return
+    except discord.errors.Forbidden:
+        print(f"[ERRO] Sem permissão para acessar o canal {CHANNEL_ID}.")
+        return
 
-        embed_msg = []
-        for categoria in CATALOGO:
-            nome_categoria = categoria.get("categoria", "")
-            embed = discord.Embed(
-                title=f"🛒 {nome_categoria}",
-                description="*Postagem Automática*",
-                color=CORES.get(nome_categoria, discord.Color.dark_gray())
-            )
-            embed.add_field(
-                name="\u200b",
-                value="\n".join([f"{item['nome']} - {item['preco']}" for item in categoria.get("itens", [])]),
-                inline=False
-            )
-            embed_msg.append(embed)
+    embed = Embed(title="📚 Catálogo de Itens", description="Atualização automática do catálogo", color=0xFFFFFF)
+    for categoria, itens in CATEGORIAS.items():
+        descricao = "\n".join(f"• {item}" for item in itens)
+        embed.add_field(name=f"▸{categoria}", value=descricao or "Sem itens", inline=False)
+        embed.color = CORES[categoria]  # Mantém a cor da última categoria como cor principal
 
-        # envia todos os embeds em uma única mensagem (até 10 por limite do Discord)
-        await canal.send(embeds=embed_msg[:10])
+    await canal.send(embed=embed)
+    print("[INFO] Catálogo enviado com sucesso.")
 
-        print("Catálogo postado com sucesso!")
-
-    except Exception as e:
-        print("Erro ao postar catálogo automaticamente:")
-        traceback.print_exc()
-
-# Loop diário para postar catálogo
-@tasks.loop(hours=24)
-async def loop_diario():
-    await bot.wait_until_ready()
+@tasks.loop(days=1)  # Executa a cada 1 dia
+async def loop_catalogo():
     await postar_catalogo()
 
-# Inicia o loop quando o bot está pronto
 @bot.event
 async def on_ready():
-    print(f"Bot logado como {bot.user}")
-    if not loop_diario.is_running():
-        loop_diario.start()
+    print(f"[INFO] Bot conectado como {bot.user}")
+    loop_catalogo.start()
 
-# Roda o bot
 bot.run(TOKEN)
