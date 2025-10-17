@@ -1,67 +1,69 @@
-import discord
-from discord.ext import tasks
-from discord import Embed
-import asyncio
 import os
+import asyncio
+import discord
+from discord.ext import commands, tasks
+from aiohttp import web
 
-# ================= CONFIGURAÇÃO =================
-TOKEN = os.environ.get("TOKEN")
-CHANNEL_ID = int(os.environ.get("CHANNEL_ID"))
-GUILD_ID = int(os.environ.get("GUILD_ID"))
-# =================================================
+# Variáveis de ambiente
+TOKEN = os.getenv("TOKEN")
+CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
+GUILD_ID = int(os.getenv("GUILD_ID"))
 
 intents = discord.Intents.default()
 intents.message_content = True
-intents.guilds = True
 
-bot = discord.Client(intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Cores dos embeds
-CORES = {
-    "DESTAQUES": 0xFFA500,      # Laranja
-    "EQUIPAMENTOS": 0x0077FF,   # Azul normal
-    "OUTROS": 0x0055AA,         # Azul mais escuro
-    "SOMBRIOS": 0x808080,       # Cinza
-    "VISUAIS": 0x800080         # Roxo
-}
-
-# Conteúdo dos embeds (exemplo, substitua pelo seu)
-CATEGORIAS = {
-    "DESTAQUES": ["Item destaque 1", "Item destaque 2"],
-    "EQUIPAMENTOS": ["Equipamento 1", "Equipamento 2"],
-    "OUTROS": ["Outro 1", "Outro 2"],
-    "SOMBRIOS": ["Sombrio 1", "Sombrio 2"],
-    "VISUAIS": ["Visual 1", "Visual 2"]
-}
-
+# --------- Função de postar catálogo ----------
 async def postar_catalogo():
-    try:
-        canal = await bot.fetch_channel(CHANNEL_ID)
-    except discord.errors.NotFound:
-        print(f"[ERRO] Canal com ID {CHANNEL_ID} não encontrado ou bot não tem acesso.")
-        return
-    except discord.errors.Forbidden:
-        print(f"[ERRO] Sem permissão para acessar o canal {CHANNEL_ID}.")
+    canal = bot.get_channel(CHANNEL_ID)
+    if not canal:
+        print(f"Canal {CHANNEL_ID} não encontrado.")
         return
 
-    embed = Embed(title="📚 Catálogo de Itens", description="Atualização automática do catálogo", color=0xFFFFFF)
-    for categoria, itens in CATEGORIAS.items():
-        descricao = "\n".join(f"• {item}" for item in itens)
-        embed.add_field(name=f"▸{categoria}", value=descricao or "Sem itens", inline=False)
-        embed.color = CORES[categoria]
+    # Exemplo de embed
+    embed = discord.Embed(
+        title="▸EQUIPAMENTOS",
+        description="Lista de equipamentos do catálogo",
+        color=discord.Color.blue()  # Azul normal
+    )
 
+    # Adicionar campos de exemplo
+    embed.add_field(name="Espada", value="100 moedas", inline=True)
+    embed.add_field(name="Escudo", value="150 moedas", inline=True)
+    
     await canal.send(embed=embed)
-    print("[INFO] Catálogo enviado com sucesso.")
+    print("Catálogo postado com sucesso!")
 
-# Loop diário usando segundos
-@tasks.loop(seconds=86400)
-async def loop_catalogo():
+# --------- Loop diário ----------
+@tasks.loop(hours=24)
+async def loop_diario():
     await postar_catalogo()
 
+@loop_diario.before_loop
+async def before_loop():
+    await bot.wait_until_ready()
+
+# --------- Servidor HTTP mínimo para Render ----------
+async def handle(request):
+    return web.Response(text="Bot rodando")
+
+async def start_webserver():
+    app = web.Application()
+    app.router.add_get("/", handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", 10000)  # Porta aberta para Render
+    await site.start()
+    print("Webserver iniciado na porta 10000")
+
+# --------- Evento on_ready ----------
 @bot.event
 async def on_ready():
-    print(f"[INFO] Bot conectado como {bot.user}")
-    loop_catalogo.start()
+    print(f"Bot logado como {bot.user}")
+    if not loop_diario.is_running():
+        loop_diario.start()
+    # Inicia o servidor HTTP em paralelo
+    asyncio.create_task(start_webserver())
 
 bot.run(TOKEN)
-
