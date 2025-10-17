@@ -1,29 +1,17 @@
 import discord
-from discord import app_commands
 from discord.ext import commands, tasks
-import json
+import asyncio
 import os
+import json
 import traceback
-from datetime import datetime, timedelta
 
 # -----------------------------
-# CONFIGURAÇÃO
+# CONFIGURAÇÃO DE VARIÁVEIS
 # -----------------------------
-TOKEN = "SEU_TOKEN_AQUI"  # Substitua pelo token do bot
-GUILD_ID = 1428479253997162548  # Substitua pelo ID do seu servidor
-CHANNEL_ID = 1428479568808771605  # Canal onde o catálogo será postado
-
+TOKEN = os.environ.get("TOKEN")
+GUILD_ID = int(os.environ.get("GUILD_ID", 0))
+CHANNEL_ID = int(os.environ.get("CHANNEL_ID", 0))
 ITEMS_FILE = "itens.json"
-LAST_POST_FILE = "ultima_postagem.txt"
-
-# Cria arquivos caso não existam
-if not os.path.exists(ITEMS_FILE):
-    with open(ITEMS_FILE, "w", encoding="utf-8") as f:
-        json.dump([], f, ensure_ascii=False, indent=4)
-
-if not os.path.exists(LAST_POST_FILE):
-    with open(LAST_POST_FILE, "w", encoding="utf-8") as f:
-        f.write("0")
 
 # -----------------------------
 # FUNÇÕES AUXILIARES
@@ -32,27 +20,34 @@ def carregar_itens():
     try:
         with open(ITEMS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception as e:
-        print(f"Erro ao ler {ITEMS_FILE}: {e}")
+    except FileNotFoundError:
+        print(f"Arquivo {ITEMS_FILE} não encontrado.")
         return []
-
-def salvar_ultima_postagem(timestamp):
-    with open(LAST_POST_FILE, "w", encoding="utf-8") as f:
-        f.write(str(timestamp))
-
-def ler_ultima_postagem():
-    try:
-        with open(LAST_POST_FILE, "r", encoding="utf-8") as f:
-            return float(f.read())
-    except:
-        return 0
+    except json.JSONDecodeError as e:
+        print(f"Erro ao ler {ITEMS_FILE}: JSON inválido.")
+        print(e)
+        return []
+    except Exception as e:
+        print(f"Erro inesperado ao carregar {ITEMS_FILE}:")
+        print(e)
+        return []
 
 # -----------------------------
 # CONFIGURAÇÃO DO BOT
 # -----------------------------
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
-guild = discord.Object(id=GUILD_ID)
+
+# -----------------------------
+# CORES DAS EMBEDS
+# -----------------------------
+CORES = {
+    "▸**DESTAQUES**": 0xFF8C42,    # Laranja
+    "▸**EQUIPAMENTOS**": 0xADD8E6, # Azul Claro
+    "▸**OUTROS**": 0x0A3D62,       # Azul Escuro
+    "▸**SOMBRIOS**": 0xA9A9A9,     # Cinza
+    "▸**VISUAIS**": 0x800080       # Roxo
+}
 
 # -----------------------------
 # EVENTO ON_READY
@@ -61,11 +56,11 @@ guild = discord.Object(id=GUILD_ID)
 async def on_ready():
     print(f"Bot online como {bot.user}")
     try:
-        await bot.tree.sync(guild=guild)
+        await bot.tree.sync()
         print("Comandos slash sincronizados no servidor.")
+        postar_catalogo.start()
     except Exception as e:
         print(e)
-    post_catalogo_auto.start()
 
 # -----------------------------
 # COMANDO /catalogo
@@ -78,19 +73,19 @@ async def catalogo(interaction: discord.Interaction):
             await interaction.response.send_message("O catálogo está vazio.", ephemeral=True)
             return
 
-        embeds = []
+        embed = discord.Embed(title="🛒 Catálogo de Itens", color=discord.Color.dark_gray())
+        embed.description = "*Postagem Manual*"
 
-        # Monta cada embed por categoria
         for categoria in itens:
-            embed = discord.Embed(
-                title=categoria["categoria"],
-                color=discord.Color(int(categoria.get("cor", "0x808080"), 16))
+            nome_categoria = categoria.get("categoria", "")
+            embed.add_field(
+                name=nome_categoria,
+                value="\n".join([f"{item['nome']} - {item['preco']}" for item in categoria.get("itens", [])]),
+                inline=False
             )
-            for item in categoria["itens"]:
-                embed.add_field(name=item["nome"], value=f"Preço: {item['preco']}", inline=False)
-            embeds.append(embed)
+            embed.add_field(name="\u200b", value="\u200b", inline=False)
 
-        await interaction.response.send_message(embeds=embeds)
+        await interaction.response.send_message(embed=embed)
 
     except Exception as e:
         print("Erro no comando /catalogo:")
@@ -98,33 +93,36 @@ async def catalogo(interaction: discord.Interaction):
         await interaction.response.send_message("Ocorreu um erro ao carregar o catálogo.", ephemeral=True)
 
 # -----------------------------
-# POSTAGEM AUTOMÁTICA A CADA 25 DIAS
+# POSTAGEM AUTOMÁTICA
 # -----------------------------
-@tasks.loop(hours=24)
-async def post_catalogo_auto():
+@tasks.loop(days=25)
+async def postar_catalogo():
     try:
-        ultima = ler_ultima_postagem()
-        agora = datetime.utcnow().timestamp()
-        # 25 dias em segundos
-        if agora - ultima >= 25*24*60*60:
-            canal = bot.get_channel(CHANNEL_ID)
-            if canal:
-                itens = carregar_itens()
-                if itens:
-                    mensagem = "📦 Postagem Automática\n\n"
-                    embeds = []
-                    for categoria in itens:
-                        embed = discord.Embed(
-                            title=categoria["categoria"],
-                            color=discord.Color(int(categoria.get("cor", "0x808080"), 16))
-                        )
-                        for item in categoria["itens"]:
-                            embed.add_field(name=item["nome"], value=f"Preço: {item['preco']}", inline=False)
-                        embeds.append(embed)
-                    await canal.send(content=mensagem, embeds=embeds)
-                    salvar_ultima_postagem(agora)
+        canal = bot.get_channel(CHANNEL_ID)
+        if canal is None:
+            canal = await bot.fetch_channel(CHANNEL_ID)
+
+        itens = carregar_itens()
+        if not itens:
+            await canal.send("O catálogo está vazio.")
+            return
+
+        embed = discord.Embed(title="🛒 Catálogo de Itens", color=discord.Color.dark_gray())
+        embed.description = "*Postagem Automática*"
+
+        for categoria in itens:
+            nome_categoria = categoria.get("categoria", "")
+            embed.add_field(
+                name=nome_categoria,
+                value="\n".join([f"{item['nome']} - {item['preco']}" for item in categoria.get("itens", [])]),
+                inline=False
+            )
+            embed.add_field(name="\u200b", value="\u200b", inline=False)
+
+        await canal.send(embed=embed)
+
     except Exception as e:
-        print("Erro na postagem automática:")
+        print("Erro ao postar catálogo automaticamente:")
         traceback.print_exc()
 
 # -----------------------------
