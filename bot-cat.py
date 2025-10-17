@@ -9,11 +9,16 @@ import asyncio
 # -----------------------------
 # CONFIGURAÇÃO
 # -----------------------------
-TOKEN = os.environ['TOKEN']            # Token do bot
-GUILD_ID = int(os.environ['GUILD_ID']) # ID do servidor
-CANAL_ID = int(os.environ['CANAL_ID']) # ID do canal onde postar o catálogo
+TOKEN = os.environ.get("DISCORD_TOKEN")  # Token armazenado como variável secreta no Replit
+GUILD_ID = int(os.environ.get("GUILD_ID"))  # ID do servidor
+CANAL_ID = int(os.environ.get("CANAL_ID"))  # ID do canal para envio automático
 
 ITEMS_FILE = "itens.json"
+
+# Cria arquivo JSON caso não exista
+if not os.path.exists(ITEMS_FILE):
+    with open(ITEMS_FILE, "w", encoding="utf-8") as f:
+        json.dump([], f, ensure_ascii=False, indent=4)
 
 # -----------------------------
 # FUNÇÕES AUXILIARES
@@ -23,7 +28,7 @@ def carregar_itens():
         with open(ITEMS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
-        print(f"Erro ao ler {ITEMS_FILE}: {e}")
+        print("Erro ao carregar itens:", e)
         return []
 
 def salvar_itens(itens):
@@ -31,7 +36,7 @@ def salvar_itens(itens):
         with open(ITEMS_FILE, "w", encoding="utf-8") as f:
             json.dump(itens, f, indent=4, ensure_ascii=False)
     except Exception as e:
-        print(f"Erro ao salvar {ITEMS_FILE}: {e}")
+        print("Erro ao salvar itens:", e)
 
 # -----------------------------
 # CONFIGURAÇÃO DO BOT
@@ -51,43 +56,8 @@ async def on_ready():
         print("Comandos slash sincronizados no servidor.")
     except Exception as e:
         print(e)
-    # Inicia a tarefa automática
-    enviar_catalogo_automatico.start()
-
-# -----------------------------
-# FUNÇÃO PARA ENVIAR CATÁLOGO
-# -----------------------------
-async def enviar_catalogo(canale_id):
-    itens = carregar_itens()
-    if not itens:
-        print("O catálogo está vazio.")
-        return
-    try:
-        canal = bot.get_channel(canale_id)
-        if canal is None:
-            canal = await bot.fetch_channel(canale_id)
-
-        # Cria Embeds por categoria
-        for grupo in itens:
-            embed = discord.Embed(
-                title=grupo["categoria"],
-                color=int(grupo["cor"],16)
-            )
-            for item in grupo["itens"]:
-                embed.add_field(name=item["nome"], value=f"Preço: {item['preco']}", inline=False)
-            await canal.send(embed=embed)
-        print("Catálogo enviado automaticamente.")
-    except Exception as e:
-        print("Erro ao enviar catálogo automaticamente:")
-        traceback.print_exc()
-
-# -----------------------------
-# TASK AUTOMÁTICA (a cada 25 dias)
-# -----------------------------
-@tasks.loop(hours=25*24)
-async def enviar_catalogo_automatico():
-    await bot.wait_until_ready()
-    await enviar_catalogo(CANAL_ID)
+    # Inicia a tarefa de envio automático
+    enviar_catalogo_periodicamente.start()
 
 # -----------------------------
 # COMANDO /catalogo
@@ -99,86 +69,36 @@ async def catalogo(interaction: discord.Interaction):
         if not itens:
             await interaction.response.send_message("O catálogo está vazio.", ephemeral=True)
             return
-        for grupo in itens:
-            embed = discord.Embed(
-                title=grupo["categoria"],
-                color=int(grupo["cor"],16)
-            )
+
+        for grupo in itens:  # Cada grupo é uma categoria/subtítulo
+            embed = discord.Embed(title=grupo["categoria"], color=grupo.get("cor", discord.Color.light_grey()))
             for item in grupo["itens"]:
                 embed.add_field(name=item["nome"], value=f"Preço: {item['preco']}", inline=False)
             await interaction.response.send_message(embed=embed)
-    except Exception as e:
+
+    except Exception:
         print("Erro no comando /catalogo:")
         traceback.print_exc()
         await interaction.response.send_message("Ocorreu um erro ao carregar o catálogo.", ephemeral=True)
 
 # -----------------------------
-# COMANDOS /additem, /edititem e /delitem
+# TAREFA AUTOMÁTICA PARA ENVIAR CATALOGO
 # -----------------------------
-@bot.tree.command(name="additem", description="Adiciona um item ao catálogo")
-@app_commands.describe(categoria="Categoria do item", nome="Nome do item", preco="Preço do item")
-async def additem(interaction: discord.Interaction, categoria: str, nome: str, preco: str):
-    try:
-        itens = carregar_itens()
-        # Procura o grupo
-        grupo = next((g for g in itens if g["categoria"].lower() == categoria.lower()), None)
-        if not grupo:
-            await interaction.response.send_message(f"Categoria '{categoria}' não encontrada.", ephemeral=True)
-            return
-        # Verifica se item já existe
-        if any(i["nome"].lower() == nome.lower() for i in grupo["itens"]):
-            await interaction.response.send_message(f"Item '{nome}' já existe.", ephemeral=True)
-            return
-        grupo["itens"].append({"nome": nome, "preco": preco})
-        salvar_itens(itens)
-        await interaction.response.send_message(f"Item '{nome}' adicionado em '{categoria}'.")
-    except Exception as e:
-        print("Erro no comando /additem:")
-        traceback.print_exc()
-        await interaction.response.send_message("Ocorreu um erro ao adicionar o item.", ephemeral=True)
-
-@bot.tree.command(name="edititem", description="Edita um item do catálogo")
-@app_commands.describe(categoria="Categoria do item", nome="Nome atual", novo_nome="Novo nome", novo_preco="Novo preço")
-async def edititem(interaction: discord.Interaction, categoria: str, nome: str, novo_nome: str, novo_preco: str):
-    try:
-        itens = carregar_itens()
-        grupo = next((g for g in itens if g["categoria"].lower() == categoria.lower()), None)
-        if not grupo:
-            await interaction.response.send_message(f"Categoria '{categoria}' não encontrada.", ephemeral=True)
-            return
-        for item in grupo["itens"]:
-            if item["nome"].lower() == nome.lower():
-                item["nome"] = novo_nome
-                item["preco"] = novo_preco
-                salvar_itens(itens)
-                await interaction.response.send_message(f"Item '{nome}' editado para '{novo_nome}' com preço '{novo_preco}'.")
-                return
-        await interaction.response.send_message(f"Item '{nome}' não encontrado.", ephemeral=True)
-    except Exception as e:
-        print("Erro no comando /edititem:")
-        traceback.print_exc()
-        await interaction.response.send_message("Ocorreu um erro ao editar o item.", ephemeral=True)
-
-@bot.tree.command(name="delitem", description="Deleta um item do catálogo")
-@app_commands.describe(categoria="Categoria do item", nome="Nome do item")
-async def delitem(interaction: discord.Interaction, categoria: str, nome: str):
-    try:
-        itens = carregar_itens()
-        grupo = next((g for g in itens if g["categoria"].lower() == categoria.lower()), None)
-        if not grupo:
-            await interaction.response.send_message(f"Categoria '{categoria}' não encontrada.", ephemeral=True)
-            return
-        for item in grupo["itens"]:
-            if item["nome"].lower() == nome.lower():
-                grupo["itens"].remove(item)
-                salvar_itens(itens)
-                await interaction.response.send_message(f"Item '{nome}' removido de '{categoria}'.")
-                return
-        await interaction.response.send_message(f"Item '{nome}' não encontrado.", ephemeral=True)
-    except Exception as e:
-        print("Erro no comando /delitem:")
-        traceback.print_exc()
-        await interaction.response.send_message("Ocorreu um erro ao deletar o item.", ephemeral=True)
+@tasks.loop(hours=1)  # A cada hora ele verifica, mas só envia quando atingir o intervalo de 25 dias
+async def enviar_catalogo_periodicamente():
+    await bot.wait_until_ready()
+    # Calcula 25 dias em segundos
+    tempo_espera = 25 * 24 * 60 * 60
+    await asyncio.sleep(tempo_espera)  # Espera 25 dias
+    canal = bot.get_channel(CANAL_ID)
+    if canal:
+        for grupo in carregar_itens():
+            embed = discord.Embed(title=grupo["categoria"], color=grupo.get("cor", discord.Color.light_grey()))
+            for item in grupo["itens"]:
+                embed.add_field(name=item["nome"], value=f"Preço: {item['preco']}", inline=False)
+            await canal.send(embed=embed)
+    else:
+        print(f"Canal {CANAL_ID} não encontrado.")
 
 # -----------------------------
 # RODA O BOT
