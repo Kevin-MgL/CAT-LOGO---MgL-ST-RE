@@ -1,14 +1,14 @@
 # Discord sem áudio
-git+https://github.com/ClemsonUniversity/discord.py@no-voice#egg=py-cord
+git+https://github.com/Rapptz/discord.py@master#egg=discord.py
 
-# HTTP requests e utilitários
-aiohttp>=3.8.7
+# HTTP requests e utilitários necessários para o bot
+aiohttp>=3.8.5
 attrs>=23.1.0
-charset-normalizer>=3.4.0
 multidict>=6.0.0
 async-timeout>=4.0.0
 yarl>=1.8.2
 frozenlist>=1.3.3
 aiosignal>=1.3.1
+charset-normalizer>=3.4.0
 idna>=3.4
 propcache>=0.4.1
