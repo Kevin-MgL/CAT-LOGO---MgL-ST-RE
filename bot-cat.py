@@ -1,24 +1,29 @@
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 import json
 import os
-import asyncio
-import traceback  # Para mostrar erros completos no terminal
+import traceback
+from datetime import datetime, timedelta
 
 # -----------------------------
 # CONFIGURAÇÃO
 # -----------------------------
-TOKEN = os.environ.get("TOKEN")  # Substitua pelo token do bot
-GUILD_ID = int(os.environ.get("GUILD_ID", 0))  # Substitua pelo ID do seu servidor
-CHANNEL_ID = int(os.environ.get("CHANNEL_ID", 0))  # Canal para postagem automática
+TOKEN = "SEU_TOKEN_AQUI"  # Substitua pelo token do bot
+GUILD_ID = 1428479253997162548  # Substitua pelo ID do seu servidor
+CHANNEL_ID = 1428479568808771605  # Canal onde o catálogo será postado
 
 ITEMS_FILE = "itens.json"
+LAST_POST_FILE = "ultima_postagem.txt"
 
-# Cria arquivo JSON caso não exista
+# Cria arquivos caso não existam
 if not os.path.exists(ITEMS_FILE):
     with open(ITEMS_FILE, "w", encoding="utf-8") as f:
         json.dump([], f, ensure_ascii=False, indent=4)
+
+if not os.path.exists(LAST_POST_FILE):
+    with open(LAST_POST_FILE, "w", encoding="utf-8") as f:
+        f.write("0")
 
 # -----------------------------
 # FUNÇÕES AUXILIARES
@@ -27,32 +32,27 @@ def carregar_itens():
     try:
         with open(ITEMS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except FileNotFoundError:
-        print(f"Arquivo {ITEMS_FILE} não encontrado.")
-        return []
-    except json.JSONDecodeError as e:
-        print(f"Erro ao ler {ITEMS_FILE}: JSON inválido.")
-        print(e)
-        return []
     except Exception as e:
-        print(f"Erro inesperado ao carregar {ITEMS_FILE}:")
-        print(e)
+        print(f"Erro ao ler {ITEMS_FILE}: {e}")
         return []
 
-def salvar_itens(itens):
+def salvar_ultima_postagem(timestamp):
+    with open(LAST_POST_FILE, "w", encoding="utf-8") as f:
+        f.write(str(timestamp))
+
+def ler_ultima_postagem():
     try:
-        with open(ITEMS_FILE, "w", encoding="utf-8") as f:
-            json.dump(itens, f, indent=4, ensure_ascii=False)
-    except Exception as e:
-        print(f"Erro ao salvar {ITEMS_FILE}:")
-        print(e)
+        with open(LAST_POST_FILE, "r", encoding="utf-8") as f:
+            return float(f.read())
+    except:
+        return 0
 
 # -----------------------------
 # CONFIGURAÇÃO DO BOT
 # -----------------------------
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
-guild = discord.Object(id=GUILD_ID)  # Apenas para testes no servidor
+guild = discord.Object(id=GUILD_ID)
 
 # -----------------------------
 # EVENTO ON_READY
@@ -61,10 +61,11 @@ guild = discord.Object(id=GUILD_ID)  # Apenas para testes no servidor
 async def on_ready():
     print(f"Bot online como {bot.user}")
     try:
-        await bot.tree.sync(guild=guild)  # Sincroniza apenas no servidor
+        await bot.tree.sync(guild=guild)
         print("Comandos slash sincronizados no servidor.")
     except Exception as e:
         print(e)
+    post_catalogo_auto.start()
 
 # -----------------------------
 # COMANDO /catalogo
@@ -77,31 +78,19 @@ async def catalogo(interaction: discord.Interaction):
             await interaction.response.send_message("O catálogo está vazio.", ephemeral=True)
             return
 
-        categorias = {}
-        for item in itens:
-            cat = item.get("categoria", "SEM CATEGORIA")
-            if cat not in categorias:
-                categorias[cat] = []
-            categorias[cat].append(item)
+        embeds = []
 
-        for cat, lista in categorias.items():
-            cor = discord.Color.greyple()  # Default
-            if "▸DESTAQUES" in cat:
-                cor = discord.Color.from_rgb(255, 165, 0)  # Laranja
-            elif "▸EQUIPAMENTOS" in cat:
-                cor = discord.Color.from_rgb(173, 216, 230)  # Azul Claro
-            elif "▸OUTROS" in cat:
-                cor = discord.Color.from_rgb(0, 0, 139)  # Azul Escuro
-            elif "▸SOMBRIOS" in cat:
-                cor = discord.Color.light_grey()  # Cinza
-            elif "▸VISUAIS" in cat:
-                cor = discord.Color.purple()  # Roxo
-
-            embed = discord.Embed(title=cat, color=cor)
-            for item in lista:
+        # Monta cada embed por categoria
+        for categoria in itens:
+            embed = discord.Embed(
+                title=categoria["categoria"],
+                color=discord.Color(int(categoria.get("cor", "0x808080"), 16))
+            )
+            for item in categoria["itens"]:
                 embed.add_field(name=item["nome"], value=f"Preço: {item['preco']}", inline=False)
+            embeds.append(embed)
 
-            await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embeds=embeds)
 
     except Exception as e:
         print("Erro no comando /catalogo:")
@@ -109,120 +98,34 @@ async def catalogo(interaction: discord.Interaction):
         await interaction.response.send_message("Ocorreu um erro ao carregar o catálogo.", ephemeral=True)
 
 # -----------------------------
-# COMANDO /additem
+# POSTAGEM AUTOMÁTICA A CADA 25 DIAS
 # -----------------------------
-@bot.tree.command(name="additem", description="Adiciona um item ao catálogo")
-@app_commands.describe(nome="Nome do item", preco="Preço do item", categoria="Categoria/Subtítulo")
-async def additem(interaction: discord.Interaction, nome: str, preco: str, categoria: str = "SEM CATEGORIA"):
+@tasks.loop(hours=24)
+async def post_catalogo_auto():
     try:
-        itens = carregar_itens()
-        # Verifica se já existe
-        for item in itens:
-            if item["nome"].lower() == nome.lower():
-                await interaction.response.send_message(f"Item '{nome}' já existe.", ephemeral=True)
-                return
-        itens.append({"nome": nome, "preco": preco, "categoria": categoria})
-        salvar_itens(itens)
-        await interaction.response.send_message(f"Item '{nome}' adicionado com preço '{preco}' na categoria '{categoria}'.")
+        ultima = ler_ultima_postagem()
+        agora = datetime.utcnow().timestamp()
+        # 25 dias em segundos
+        if agora - ultima >= 25*24*60*60:
+            canal = bot.get_channel(CHANNEL_ID)
+            if canal:
+                itens = carregar_itens()
+                if itens:
+                    mensagem = "📦 Postagem Automática\n\n"
+                    embeds = []
+                    for categoria in itens:
+                        embed = discord.Embed(
+                            title=categoria["categoria"],
+                            color=discord.Color(int(categoria.get("cor", "0x808080"), 16))
+                        )
+                        for item in categoria["itens"]:
+                            embed.add_field(name=item["nome"], value=f"Preço: {item['preco']}", inline=False)
+                        embeds.append(embed)
+                    await canal.send(content=mensagem, embeds=embeds)
+                    salvar_ultima_postagem(agora)
     except Exception as e:
-        print("Erro no comando /additem:")
+        print("Erro na postagem automática:")
         traceback.print_exc()
-        await interaction.response.send_message("Ocorreu um erro ao adicionar o item.", ephemeral=True)
-
-# -----------------------------
-# COMANDO /edititem
-# -----------------------------
-@bot.tree.command(name="edititem", description="Edita um item do catálogo")
-@app_commands.describe(nome="Nome do item a ser editado", novo_nome="Novo nome do item", novo_preco="Novo preço do item")
-async def edititem(interaction: discord.Interaction, nome: str, novo_nome: str, novo_preco: str):
-    try:
-        itens = carregar_itens()
-        for item in itens:
-            if item["nome"].lower() == nome.lower():
-                item["nome"] = novo_nome
-                item["preco"] = novo_preco
-                salvar_itens(itens)
-                await interaction.response.send_message(f"Item '{nome}' editado para '{novo_nome}' com preço '{novo_preco}'.")
-                return
-        await interaction.response.send_message(f"Item '{nome}' não encontrado.", ephemeral=True)
-    except Exception as e:
-        print("Erro no comando /edititem:")
-        traceback.print_exc()
-        await interaction.response.send_message("Ocorreu um erro ao editar o item.", ephemeral=True)
-
-# -----------------------------
-# COMANDO /delitem
-# -----------------------------
-@bot.tree.command(name="delitem", description="Deleta um item do catálogo")
-@app_commands.describe(nome="Nome do item a ser deletado")
-async def delitem(interaction: discord.Interaction, nome: str):
-    try:
-        itens = carregar_itens()
-        for item in itens:
-            if item["nome"].lower() == nome.lower():
-                itens.remove(item)
-                salvar_itens(itens)
-                await interaction.response.send_message(f"Item '{nome}' removido do catálogo.")
-                return
-        await interaction.response.send_message(f"Item '{nome}' não encontrado.", ephemeral=True)
-    except Exception as e:
-        print("Erro no comando /delitem:")
-        traceback.print_exc()
-        await interaction.response.send_message("Ocorreu um erro ao deletar o item.", ephemeral=True)
-
-# -----------------------------
-# FUNÇÃO POSTAGEM AUTOMÁTICA
-# -----------------------------
-async def postar_catalogo_periodicamente():
-    await bot.wait_until_ready()
-    canal = bot.get_channel(CHANNEL_ID)
-    if not canal:
-        print("Canal não encontrado. Verifique CHANNEL_ID.")
-        return
-
-    while True:
-        try:
-            itens = carregar_itens()
-            if not itens:
-                await canal.send("O catálogo está vazio.")
-            else:
-                # Mensagem de aviso de postagem automática
-                await canal.send("**Postagem Automática**")
-
-                categorias = {}
-                for item in itens:
-                    cat = item.get("categoria", "SEM CATEGORIA")
-                    if cat not in categorias:
-                        categorias[cat] = []
-                    categorias[cat].append(item)
-
-                for cat, lista in categorias.items():
-                    cor = discord.Color.greyple()  # Default
-                    if "▸DESTAQUES" in cat:
-                        cor = discord.Color.from_rgb(255, 165, 0)  # Laranja
-                    elif "▸EQUIPAMENTOS" in cat:
-                        cor = discord.Color.from_rgb(173, 216, 230)  # Azul Claro
-                    elif "▸OUTROS" in cat:
-                        cor = discord.Color.from_rgb(0, 0, 139)  # Azul Escuro
-                    elif "▸SOMBRIOS" in cat:
-                        cor = discord.Color.light_grey()  # Cinza
-                    elif "▸VISUAIS" in cat:
-                        cor = discord.Color.purple()  # Roxo
-
-                    embed = discord.Embed(title=cat, color=cor)
-                    for item in lista:
-                        embed.add_field(name=item["nome"], value=f"Preço: {item['preco']}", inline=False)
-                    await canal.send(embed=embed)
-
-        except Exception as e:
-            print("Erro na postagem automática:")
-            traceback.print_exc()
-
-        # Aguarda 25 dias (em segundos)
-        await asyncio.sleep(25*24*60*60)
-
-# Inicia a tarefa automática
-bot.loop.create_task(postar_catalogo_periodicamente())
 
 # -----------------------------
 # RODA O BOT
